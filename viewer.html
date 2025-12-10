@@ -1,272 +1,343 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-  <meta charset="utf-8" />
-  <title>CS436 3D Tour Viewer</title>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <script src="https://threejs.org/examples/js/loaders/PLYLoader.js"></script>
-  <style>
-    body {
-      margin: 0;
-      overflow: hidden;
-      background: #000;
-      color: #fff;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    }
+    <meta charset="utf-8" />
+    <title>CS436 3D Tour Viewer</title>
 
-    canvas {
-      display: block;
-    }
+    <!-- Three.js + legacy PLYLoader (matching versions) -->
+    <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+    <script src="https://unpkg.com/three@0.128.0/examples/js/loaders/PLYLoader.js"></script>
 
-    .photoViewer {
-      position: fixed;
-      bottom: 16px;
-      right: 16px;
-      width: 340px;
-      height: auto;
-      pointer-events: none; /* clicks go through to 3D view */
-    }
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #000;
+            color: #fff;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
 
-    .photoViewer img {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: auto;
-      border-radius: 8px;
-      border: 2px solid #ffffff;
-      box-shadow: 0 0 12px rgba(0,0,0,0.7);
-      object-fit: contain;
-      background: #000;
-      opacity: 0;
-      transition: opacity 0.6s ease;
-    }
+        canvas {
+            display: block;
+        }
 
-    .hint {
-      position: fixed;
-      left: 16px;
-      bottom: 16px;
-      font-size: 13px;
-      background: rgba(0,0,0,0.6);
-      padding: 8px 12px;
-      border-radius: 6px;
-    }
-  </style>
+        .photoViewer {
+            position: fixed;
+            bottom: 16px;
+            right: 16px;
+            width: 260px;
+            max-height: 28vh;
+            overflow: hidden;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .photoViewer img {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: auto;
+            max-height: 28vh;
+            border-radius: 8px;
+            border: 2px solid #ffffff;
+            box-shadow: 0 0 12px rgba(0, 0, 0, 0.7);
+            object-fit: contain;
+            background: #000;
+            opacity: 0;
+            transition: opacity 0.6s ease;
+        }
+
+        .hint {
+            position: fixed;
+            left: 16px;
+            bottom: 16px;
+            font-size: 13px;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 8px 12px;
+            border-radius: 6px;
+            z-index: 5;
+        }
+    </style>
 </head>
+
 <body>
-  <canvas id="c"></canvas>
+    <canvas id="c"></canvas>
 
-  <div class="photoViewer">
-    <img id="imgA" alt="View A" />
-    <img id="imgB" alt="View B" />
-  </div>
+    <div class="photoViewer">
+        <img id="imgA" alt="View A" />
+        <img id="imgB" alt="View B" />
+    </div>
 
-  <div class="hint">
-    Click red spheres to move between views
-  </div>
+    <div class="hint">
+        Click red spheres to move between views
+    </div>
 
-  <script>
-    const canvas = document.getElementById("c");
-    const renderer = new THREE.WebGLRenderer({ canvas });
-    renderer.setPixelRatio(window.devicePixelRatio);
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    <script>
+        const canvas = document.getElementById("c");
+        const renderer = new THREE.WebGLRenderer({ canvas });
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setSize(window.innerWidth, window.innerHeight);
 
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x000000);
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x000000);
 
-    const camera = new THREE.PerspectiveCamera(
-      60,
-      window.innerWidth / window.innerHeight,
-      0.01,
-      5000
-    );
-    camera.position.set(0, 0, 2);
+        const camera = new THREE.PerspectiveCamera(
+            60,
+            window.innerWidth / window.innerHeight,
+            0.01,
+            5000
+        );
+        camera.position.set(0, 0, 2);
 
-    // Basic lights
-    const light = new THREE.DirectionalLight(0xffffff, 0.8);
-    light.position.set(1, 1, 1);
-    scene.add(light);
-    scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+        // Lights
+        const light = new THREE.DirectionalLight(0xffffff, 0.8);
+        light.position.set(1, 1, 1);
+        scene.add(light);
+        scene.add(new THREE.AmbientLight(0xffffff, 0.4));
 
-    const loader = new THREE.PLYLoader();
+        // PLY loader
+        const loader = new THREE.PLYLoader();
 
-    // Navigation state
-    const camNodes = [];
-    let currentIndex = 0;
-    let targetIndex = 0;
-    let isTransitioning = false;
-    let transitionStartTime = 0;
-    const transitionDuration = 1.5; // seconds
+        let cloudCenter = null;
+        let cloudRadius = 1;
 
-    const startPos = new THREE.Vector3();
-    const endPos = new THREE.Vector3();
-    const startTarget = new THREE.Vector3();
-    const endTarget = new THREE.Vector3();
-    const currentLookTarget = new THREE.Vector3();
 
-    // Image cross-fade
-    const imgA = document.getElementById("imgA");
-    const imgB = document.getElementById("imgB");
-    let activeImg = 0; // 0 = A visible, 1 = B visible
+        // Navigation state
+        const camNodes = [];
+        let currentIndex = 0;
+        let targetIndex = 0;
+        let isTransitioning = false;
+        let transitionStartTime = 0;
+        const transitionDuration = 1.5;
 
-    function showImageForIndex(index, immediate) {
-      if (!camNodes[index] || !camNodes[index].imageUrl) return;
+        const startPos = new THREE.Vector3();
+        const endPos = new THREE.Vector3();
+        const startTarget = new THREE.Vector3();
+        const endTarget = new THREE.Vector3();
+        const currentLookTarget = new THREE.Vector3();
 
-      const nextUrl = camNodes[index].imageUrl;
-      const incoming = activeImg === 0 ? imgB : imgA;
-      const outgoing = activeImg === 0 ? imgA : imgB;
+        // Image cross-fade
+        const imgA = document.getElementById("imgA");
+        const imgB = document.getElementById("imgB");
+        let activeImg = 0;
 
-      incoming.src = nextUrl;
+        function showImageForIndex(index, immediate) {
+            if (!camNodes[index] || !camNodes[index].imageUrl) return;
 
-      if (immediate) {
-        // Disable transition for the first show to avoid fade from black
-        incoming.style.transition = "none";
-        outgoing.style.transition = "none";
-        incoming.style.opacity = 1;
-        outgoing.style.opacity = 0;
-        // Force reflow then re-enable transitions
-        void incoming.offsetWidth;
-        incoming.style.transition = "opacity 0.6s ease";
-        outgoing.style.transition = "opacity 0.6s ease";
-      } else {
-        incoming.style.opacity = 1;
-        outgoing.style.opacity = 0;
-      }
+            const nextUrl = camNodes[index].imageUrl;
+            const incoming = activeImg === 0 ? imgB : imgA;
+            const outgoing = activeImg === 0 ? imgA : imgB;
 
-      activeImg = activeImg === 0 ? 1 : 0;
-    }
+            incoming.src = nextUrl;
 
-    // Raycasting for picking markers
-    const raycaster = new THREE.Raycaster();
-    const mouse = new THREE.Vector2();
+            if (immediate) {
+                incoming.style.transition = "none";
+                outgoing.style.transition = "none";
+                incoming.style.opacity = 1;
+                outgoing.style.opacity = 0;
+                void incoming.offsetWidth;
+                incoming.style.transition = "opacity 0.6s ease";
+                outgoing.style.transition = "opacity 0.6s ease";
+            } else {
+                incoming.style.opacity = 1;
+                outgoing.style.opacity = 0;
+            }
 
-    function onCanvasClick(event) {
-      const rect = renderer.domElement.getBoundingClientRect();
-      mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-      mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-      raycaster.setFromCamera(mouse, camera);
-
-      const objects = camNodes.map(n => n.marker);
-      const intersects = raycaster.intersectObjects(objects, false);
-
-      if (intersects.length > 0) {
-        const idx = intersects[0].object.userData.index;
-        startTransitionTo(idx);
-      }
-    }
-
-    renderer.domElement.addEventListener("click", onCanvasClick);
-
-    function startTransitionTo(newIndex) {
-      if (newIndex === currentIndex || !camNodes[newIndex]) return;
-
-      targetIndex = newIndex;
-      isTransitioning = true;
-      transitionStartTime = performance.now();
-
-      startPos.copy(camera.position);
-      startTarget.copy(currentLookTarget);
-
-      // Place camera slightly away from the center
-      const offset = new THREE.Vector3(0, 0, 0.3);
-      endPos.copy(camNodes[targetIndex].center).add(offset);
-      endTarget.copy(camNodes[targetIndex].center);
-
-      showImageForIndex(targetIndex, false);
-    }
-
-    // Resize handling
-    window.addEventListener("resize", () => {
-      const w = window.innerWidth;
-      const h = window.innerHeight;
-      renderer.setSize(w, h);
-      camera.aspect = w / h;
-      camera.updateProjectionMatrix();
-    });
-
-    // Load scene config
-    fetch("threejs_scene.json")
-      .then(r => r.json())
-      .then(config => {
-        const imagesBase = config.images_base || "";
-        const camerasCfg = config.cameras || [];
-
-        // Load point cloud
-        loader.load(config.pointcloud_file, function (pcd) {
-          if (pcd.material && "size" in pcd.material) {
-            pcd.material.size = 0.02;
-          }
-          scene.add(pcd);
-        });
-
-        // Create navigation nodes
-        camerasCfg.forEach((camCfg, idx) => {
-          if (!camCfg.center) return;
-
-          const center = new THREE.Vector3(
-            camCfg.center[0],
-            camCfg.center[1],
-            camCfg.center[2]
-          );
-
-          const markerGeom = new THREE.SphereGeometry(0.02, 12, 12);
-          const markerMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
-          const marker = new THREE.Mesh(markerGeom, markerMat);
-          marker.position.copy(center);
-          marker.userData.index = idx;
-          scene.add(marker);
-
-          const imageFile = camCfg.image_file || "";
-          const imageUrl =
-            imagesBase && imageFile
-              ? imagesBase.replace(/\\/$/ "") + "/" + imageFile
-              : imageFile;
-
-          camNodes.push({
-            center,
-            marker,
-            imageUrl
-          });
-        });
-
-        // Initial camera placement
-        if (camNodes.length > 0) {
-          const firstCenter = camNodes[0].center;
-          const offset = new THREE.Vector3(0, 0, 0.3);
-          camera.position.copy(firstCenter).add(offset);
-          currentLookTarget.copy(firstCenter);
-          camera.lookAt(currentLookTarget);
-          showImageForIndex(0, true);
-        }
-      });
-
-    // Main render loop
-    function animate() {
-      requestAnimationFrame(animate);
-
-      if (isTransitioning) {
-        const now = performance.now();
-        const elapsed = (now - transitionStartTime) / 1000.0;
-        let t = elapsed / transitionDuration;
-        if (t >= 1.0) {
-          t = 1.0;
-          isTransitioning = false;
-          currentIndex = targetIndex;
+            activeImg = activeImg === 0 ? 1 : 0;
         }
 
-        // Smoothstep interpolation
-        const s = t * t * (3 - 2 * t);
+        // Raycasting for markers
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
 
-        camera.position.lerpVectors(startPos, endPos, s);
-        currentLookTarget.lerpVectors(startTarget, endTarget, s);
-        camera.lookAt(currentLookTarget);
-      }
+        function onCanvasClick(event) {
+            const rect = renderer.domElement.getBoundingClientRect();
+            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
-      renderer.render(scene, camera);
-    }
+            raycaster.setFromCamera(mouse, camera);
+            const objects = camNodes.map(n => n.marker);
+            const intersects = raycaster.intersectObjects(objects, false);
 
-    animate();
-  </script>
+            if (intersects.length > 0) {
+                const idx = intersects[0].object.userData.index;
+                startTransitionTo(idx);
+            }
+        }
+
+        renderer.domElement.addEventListener("click", onCanvasClick);
+
+        function startTransitionTo(newIndex) {
+            if (newIndex === currentIndex || !camNodes[newIndex]) return;
+
+            targetIndex = newIndex;
+            isTransitioning = true;
+            transitionStartTime = performance.now();
+
+            startPos.copy(camera.position);
+            startTarget.copy(currentLookTarget);
+
+            const offset = new THREE.Vector3(0, 0, 0.3);
+            endPos.copy(camNodes[targetIndex].center).add(offset);
+            endTarget.copy(camNodes[targetIndex].center);
+
+            showImageForIndex(targetIndex, false);
+        }
+
+        // Resize
+        window.addEventListener("resize", () => {
+            const w = window.innerWidth;
+            const h = window.innerHeight;
+            renderer.setSize(w, h);
+            camera.aspect = w / h;
+            camera.updateProjectionMatrix();
+        });
+
+        // Compute camera center from R,t if center missing
+        function computeCameraCenter(camCfg) {
+            if (camCfg.center) {
+                return new THREE.Vector3(
+                    camCfg.center[0],
+                    camCfg.center[1],
+                    camCfg.center[2]
+                );
+            }
+
+            if (!camCfg.rotation || !camCfg.translation) {
+                return new THREE.Vector3(0, 0, 0);
+            }
+
+            const Rarr = camCfg.rotation;
+            const Tarr = camCfg.translation;
+
+            const R = new THREE.Matrix3();
+            R.set(
+                Rarr[0][0], Rarr[0][1], Rarr[0][2],
+                Rarr[1][0], Rarr[1][1], Rarr[1][2],
+                Rarr[2][0], Rarr[2][1], Rarr[2][2]
+            );
+
+            const t = new THREE.Vector3(Tarr[0], Tarr[1], Tarr[2]);
+            const Rt = R.clone().transpose();
+
+            // C = -R^T * t
+            const C = t.clone().applyMatrix3(Rt).multiplyScalar(-1);
+            return C;
+        }
+
+        // Load scene config
+        fetch("data/threejs_scene.json")
+            .then(r => r.json())
+            .then(config => {
+                const camerasCfg = config.cameras || [];
+
+                // Point cloud path — our PLY is inside /data
+                let plyPath = config.pointcloud_file || "merged_room.ply";
+                if (!plyPath.startsWith("data/")) {
+                    plyPath = "data/" + plyPath;
+                }
+
+                // IMPORTANT: create a THREE.Points object from the geometry
+                loader.load(
+                    plyPath,
+                    function (geometry) {
+                        geometry.computeVertexNormals();
+                        geometry.computeBoundingSphere();
+
+                        // Debug: how big and where is the cloud?
+                        console.log(
+                            "Bounding sphere center:",
+                            geometry.boundingSphere.center,
+                            "radius:",
+                            geometry.boundingSphere.radius
+                        );
+                        
+                        cloudCenter = geometry.boundingSphere.center.clone();
+                        cloudRadius = geometry.boundingSphere.radius || 1.0;
+
+                        const material = new THREE.PointsMaterial({
+                            size: 0.06,        // bigger, so it’s clearly visible
+                            color: 0xffffff
+                        });
+
+                        const points = new THREE.Points(geometry, material);
+                        scene.add(points);
+
+                        // Put the camera so we definitely see the whole cloud
+                        const viewOffset = new THREE.Vector3(0, 0, 3 * cloudRadius);
+                        camera.position.copy(cloudCenter).add(viewOffset);
+                        currentLookTarget.copy(cloudCenter);
+                        camera.lookAt(currentLookTarget);
+                    },
+                    undefined,
+                    function (err) {
+                        console.error("Failed to load PLY:", err);
+                    }
+                );
+
+                const imagesBase = config.images_base || "";
+
+                camerasCfg.forEach((camCfg, idx) => {
+                    const center = computeCameraCenter(camCfg);
+
+                    const markerGeom = new THREE.SphereGeometry(0.02, 12, 12);
+                    const markerMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+                    const marker = new THREE.Mesh(markerGeom, markerMat);
+                    marker.position.copy(center);
+                    marker.userData.index = idx;
+                    scene.add(marker);
+
+                    let imageUrl = "";
+                    if (imagesBase && camCfg.image_file) {
+                        imageUrl = imagesBase.replace(/\/$/, "") + "/" + camCfg.image_file;
+                    } else if (camCfg.image_path) {
+                        imageUrl = camCfg.image_path;
+                    }
+
+                    camNodes.push({ center, marker, imageUrl });
+                });
+
+                if (camNodes.length > 0) {
+                    const firstCenter = camNodes[0].center;
+                    const offset = new THREE.Vector3(0, 0, 0.3);
+                    camera.position.copy(firstCenter).add(offset);
+                    currentLookTarget.copy(firstCenter);
+                    camera.lookAt(currentLookTarget);
+                    showImageForIndex(0, true);
+                } else {
+                    console.warn("No camera nodes created – check cameras in JSON.");
+                }
+            })
+            .catch(err => {
+                console.error("Error loading threejs_scene.json:", err);
+            });
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            if (isTransitioning) {
+                const now = performance.now();
+                const elapsed = (now - transitionStartTime) / 1000.0;
+                let t = elapsed / transitionDuration;
+                if (t >= 1.0) {
+                    t = 1.0;
+                    isTransitioning = false;
+                    currentIndex = targetIndex;
+                }
+
+                const s = t * t * (3 - 2 * t);
+                camera.position.lerpVectors(startPos, endPos, s);
+                currentLookTarget.lerpVectors(startTarget, endTarget, s);
+                camera.lookAt(currentLookTarget);
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        animate();
+    </script>
 </body>
+
 </html>
