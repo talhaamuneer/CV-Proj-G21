@@ -253,7 +253,7 @@
                             "radius:",
                             geometry.boundingSphere.radius
                         );
-                        
+
                         cloudCenter = geometry.boundingSphere.center.clone();
                         cloudRadius = geometry.boundingSphere.radius || 1.0;
 
@@ -282,11 +282,17 @@
                 camerasCfg.forEach((camCfg, idx) => {
                     const center = computeCameraCenter(camCfg);
 
-                    const markerGeom = new THREE.SphereGeometry(0.02, 12, 12);
+                    // Make markers MUCH bigger so they are visible in a large scene
+                    const markerGeom = new THREE.SphereGeometry(2.0, 16, 16);  // radius 2 units
                     const markerMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
                     const marker = new THREE.Mesh(markerGeom, markerMat);
                     marker.position.copy(center);
                     marker.userData.index = idx;
+
+                    // Draw markers on top of the point cloud
+                    marker.renderOrder = 1;
+                    markerMat.depthTest = false;
+
                     scene.add(marker);
 
                     let imageUrl = "";
